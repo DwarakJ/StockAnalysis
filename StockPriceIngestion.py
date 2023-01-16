@@ -40,12 +40,13 @@ for stock in stocks:
 
     info_data = yf.Ticker(stock).info
 
+    data['stock'] = stock
     data['52_week_high'] = info_data['fiftyTwoWeekHigh']
     data['52_week_low'] = info_data['fiftyTwoWeekLow']
 
-    json_data = json.loads(data[['Close', '52_week_high', '52_week_low']].to_json(orient='index', date_unit="s"))
-
     data.rename(columns = {'Close':'price'}, inplace = True)
+
+    json_data = json.loads(data[['stock', 'price', '52_week_high', '52_week_low']].to_json(orient='index', date_unit="s"))
 
     # for hour in json_data:
     #     if (json_data[hour]["Close"] >= ((json_data[hour]["52_week_high"] * 80)/100)) or (json_data[hour]["Close"] <= ((json_data[hour]["52_week_low"] * 120)/100)):
