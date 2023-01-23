@@ -1,68 +1,97 @@
 import json
 import boto3
-import sys
 import yfinance as yf
-
-import time
-import random
 import datetime
-import pandas as pd
 
-# Your goal is to get per-hour stock price data for a time range for the ten stocks specified in the doc. 
-# Further, you should call the static info api for the stocks to get their current 52WeekHigh and 52WeekLow values.
-# You should craft individual data records with information about the stockid, price, price timestamp, 52WeekHigh and 52WeekLow values and push them individually on the Kinesis stream
 
-kinesis = boto3.client('kinesis', region_name = "us-east-1") #Modify this line of code according to your requirement.
+class StockIngestion:
+    def __init__(self, kinesis_client, start_datetime, end_datetime, stockstream, chunk_size, stocks):
+        self.kinesis = kinesis_client
+        self.stream_name = stockstream
+        self.start = start_datetime
+        self.end = end_datetime
+        self.chunk_size = chunk_size
 
-today = datetime.date.today() - datetime.timedelta(3)
-yesterday = datetime.date.today() - datetime.timedelta(4)
+        ## Using chunk counter to increment in the below code and send data to kinesis once chunk_counter == chunk_size
+        self.chunk_counter = 0
 
-# Example of pulling the data between 2 dates from yfinance API
-#data = yf.download("MSFT", start= yesterday, end= today, interval = '1h' )
+        ## Add code to pull the data for the stocks specified in the doc
+        self.stocks = stocks
 
-#print(data['Close'])
-# df = pd.DataFrame(data)
+        self.chunk_data = []
 
-# print(df['Close'])
+    def get_stock_data(self):
+        ## Iterating over each stock name
+        for stock in self.stocks:
 
-# data = yf.Ticker("MVIS")
-# data.info
-## Add code to pull the data for the stocks specified in the doc
-stock_prices = {}
-stocks = ["MSFT", "MVIS", "GOOG", "SPOT", "INO", "OCGN", "ABML", "RLLCF", "JNJ", "PSFE"]
-#stocks = ["MSFT"]
+            ## Pulling stock data using yahoo finance api
+            data = yf.download(stock, start= self.start, end= self.end, interval = '1h' )
+            print(f"Retrieving stock data for {stock}")
 
-my_stream_name = "stockstream"
+            ## Pulling info data for each stock to get 52_week_high, 52_week_low data
+            info_data = yf.Ticker(stock).info
 
-for stock in stocks:
-    data = yf.download(stock, start= yesterday, end= today, interval = '1h' )
-    print(f"Downloading stock data for {stock}")
+            ## Adding Stock name, 52_week_high, 52_week_low info to 'data' dataframe
+            data['stock'] = stock
+            data['52_week_high'] = info_data['fiftyTwoWeekHigh']
+            data['52_week_low'] = info_data['fiftyTwoWeekLow']
 
-    info_data = yf.Ticker(stock).info
+            ## Uncomment below statement to print stock data from yahoo finance api
+            #print(data)
 
-    data['stock'] = stock
-    data['52_week_high'] = info_data['fiftyTwoWeekHigh']
-    data['52_week_low'] = info_data['fiftyTwoWeekLow']
+            ## Renaming Close column name to price
+            data.rename(columns = {'Close':'price'}, inplace = True)
 
-    data.rename(columns = {'Close':'price'}, inplace = True)
+            ## Converting data frame to json to get the right format to send to kinesis
+            stock_data = json.loads(data[['stock', 'price', '52_week_high', '52_week_low']].to_json(orient='index', date_unit="s"))
 
-    json_data = json.loads(data[['stock', 'price', '52_week_high', '52_week_low']].to_json(orient='index', date_unit="s"))
+            for timestamp in stock_data:
+                self.chunk_counter += 1
 
-    # for hour in json_data:
-    #     if (json_data[hour]["Close"] >= ((json_data[hour]["52_week_high"] * 80)/100)) or (json_data[hour]["Close"] <= ((json_data[hour]["52_week_low"] * 120)/100)):
-    #         print(datetime.datetime.fromtimestamp(int(hour)).strftime('%Y-%m-%d %H:%M:%S'), json_data[hour])
+                ## Building stream_data for each stock and timestamp
+                stream_data = {
+                'stock': stock,
+                'timestamp': timestamp,
+                'price': stock_data[timestamp]["price"],
+                '52_week_high': stock_data[timestamp]["52_week_high"],
+                "52_week_low": stock_data[timestamp]["52_week_low"],
+                }
 
-    put_response = kinesis.put_record(
-                        StreamName=my_stream_name,
-                        Data=json.dumps(json_data),
+                print(stream_data)
+
+                ## Adding stream data to a list to create a batch of records to send to kinesis
+                self.chunk_data.append(stream_data)
+                
+                if self.chunk_counter == self.chunk_size:
+
+                    ## Pushing data to kinesis
+                    self.put_data_to_kinesis(self.stream_name, self.chunk_data, stock)
+                    
+                    self.chunk_data = []
+                    self.chunk_counter = 0
+
+            ## Pushing remaning data in chunk_data list to kinesis
+            if self.chunk_counter != 0:
+                self.put_data_to_kinesis(self.stream_name, self.chunk_data, stock)
+                self.chunk_data = []
+                self.chunk_counter = 0
+
+        
+    def put_data_to_kinesis(self, stream_name, chunk_data, stock):
+        return self.kinesis.put_record(
+                        StreamName=stream_name,
+                        Data=json.dumps(chunk_data),
                         PartitionKey=stock)
+        
+if __name__=='__main__':
+    kinesis_client = boto3.client('kinesis', region_name = "us-east-1") 
+    stocks = ["MSFT", "MVIS", "GOOG", "SPOT", "INO", "OCGN", "ABML", "RLLCF", "JNJ", "PSFE"]
+    start_datetime = datetime.date.today() - datetime.timedelta(4)
+    end_datetime = datetime.date.today() - datetime.timedelta(3)
+    kinesis_data_stream_name = "stock_stream"
 
-    print(json_data)
+    ## Setting the chunk size here to limit the list of stream data to sent to kinesis
+    chunk_size = 100
 
-## Add additional code to call 'info' API to get 52WeekHigh and 52WeekLow refering this this link - https://pypi.org/project/yfinance/
-
-
-## Add your code here to push data records to Kinesis stream.
-
-#putting the json as per the number of chunk we will give in below function 
-#Create the list of json and push like a chunk. I am sending 100 rows together
+    stock_ingestion = StockIngestion(kinesis_client, start_datetime, end_datetime, kinesis_data_stream_name, chunk_size, stocks)
+    stock_ingestion.get_stock_data()

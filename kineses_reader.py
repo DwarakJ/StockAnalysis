@@ -2,7 +2,7 @@
 import time
 import boto3
 
-STREAM_NAME = "stockstream"
+STREAM_NAME = "stockstream2"
 
 # import ipdb; ipdb.set_trace()
 try:
