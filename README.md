@@ -13,7 +13,7 @@ You can check the details of these stocks here - https://finance.yahoo.com/looku
 
 ## Architecture diagram
 
-![Alt text](architecture_diag.png)
+![Alt text](images/architecture_diag.png)
 
 ## Architecture Implementation	
 1. Create EC2 Instance
@@ -44,7 +44,7 @@ You can check the details of these stocks here - https://finance.yahoo.com/looku
 6. You can alternatively run `sh create_python_env.sh` to create a virtual environment and install the required packages. Then run the python script using the command `python3 StockPriceIngestion.py`.
 
 Example:
-![Alt text](stock_price_ingestion_example.png)
+![Alt text](images/stock_price_ingestion_example.png)
 
 ### Use boto3 and kinesis client to Push data from EC2 to Kinesis Stream
 
@@ -79,8 +79,8 @@ Refer to lambda_function.py for the lambda function code.
 
 ### Final Output
 #### DynamoDB Table Sample Data:
-![Alt text](dynamo_db_data.png)
+![Alt text](images/dynamo_db_data.png)
 
 #### SNS Notification:
 
-![Alt text](email_notification.png)
+![Alt text](images/email_notification.png)
